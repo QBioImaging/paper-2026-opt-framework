@@ -1,3 +1,4 @@
+astra-toolbox>=2.4.0
 ipykernel>=6.29.5
 ipywidgets>=8.0.6
 jupyterlab==4.2.2
@@ -7,6 +8,8 @@ napari-opt-handler
 nbformat==5.10.4
 numpy>=1.24.4
 opencv-python>=4.9
+PyQt5>=5.15.9
+qtpy>=2.3.0
 scipy>=1.10.1
 scikit-image>=0.20.0
 scikit-learn>=1.2.2

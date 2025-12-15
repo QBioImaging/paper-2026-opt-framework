@@ -1,21 +1,98 @@
 import os
 import numpy as np
-from tqdm import tqdm
-from tomopy.recon.rotation import find_center_vo
+import warnings
+import threading
+import gc
 from time import perf_counter
+
+import matplotlib.pyplot as plt
+import tomopy as tom
+from tomopy.recon.rotation import find_center_vo
+
+from pathlib import Path
+from tqdm import tqdm
 from sklearn.linear_model import LinearRegression
 from skimage.transform import resize
-import threading
-import tomopy as tom
-from pathlib import Path
-import warnings
-import gc
-import matplotlib.pyplot as plt
+from skimage.segmentation import chan_vese
 
 
-def plot_recon(recon, plot_path, title):
+#################
+# Normalization #
+#################
+def norm2d(arr: np.ndarray) -> np.ndarray:
+    """Normalize a 2D array to the range 0-4095 as uint16."""
+    mn = np.amin(arr)
+    mx = np.amax(arr)
+    return ((arr - mn)/(mx-mn)*4095).astype(np.uint16)
+
+
+def norm_max(img):
+    """ normalize by division by maximum """
+    return img/np.amax(img)
+
+
+######################
+# Plotting functions #
+######################
+def histogram(arr: np.ndarray, name: str, hist_dict:dict = None, bins: int = 256, plot: bool = False) -> dict:
+    """Compute and optionally plot the histogram of an array.
+
+    Args:
+        arr (np.ndarray): Input array.
+        name (str): Name for the histogram.
+        hist_dict (dict, optional): Dictionary to store histograms. Defaults to None.
+        bins (int, optional): Number of bins for the histogram. Defaults to 256.
+        plot (bool, optional): Whether to plot the histogram. Defaults to False.
+    
+    Returns:
+        dict: Updated histogram dictionary.
+    """
+    hist, bin_edges = np.histogram(arr, bins=bins)
+    if plot:
+        plt.figure()
+        plt.title(name)
+        plt.xlabel("Pixel Value")
+        plt.ylabel("Frequency")
+        plt.bar(bin_edges[:-1], hist, width=np.diff(bin_edges), edgecolor="black")
+        plt.yscale('log')
+        plt.show()
+    if hist_dict is not None:
+        hist_dict[name] = (hist, bin_edges)
+    else:
+        hist_dict = {name: (hist, bin_edges)}
+    return hist_dict
+
+
+def plot_histograms(hist_dict: dict) -> None:
+    """Plot multiple histograms from a dictionary.
+    
+    Args:
+        hist_dict (dict): Dictionary containing histograms.
+    """
+    plt.figure()
+    for name, (hist, bin_edges) in hist_dict.items():
+        plt.title(name)
+        plt.xlabel("Pixel Value")
+        plt.ylabel("Frequency")
+        # plt.bar(bin_edges[:-1], hist, width=np.diff(bin_edges), label=name)
+        plt.plot(bin_edges[:-1], hist, label=name)
+    plt.yscale('log')
+    plt.grid()
+    plt.legend()
+    plt.show()
+
+
+def plot_recon(recon: np.ndarray, plot_path: str = None, title: str = 'Reconstruction slices') -> None:
+    """ Plot some slices of the reconstruction
+    4x3 grid of images from the reconstruction stack.
+
+    Args:
+        recon (np.ndarray): 3D array of reconstruction data.
+        plot_path (str, optional): Path to save the plot. Defaults to None.
+        title (str, optional): Title of the plot. Defaults to 'Reconstruction slices'.
+    """
     height = recon.shape[0]
-    fig, ax = plt.subplots(4, 3, figsize=(8, 14), sharex=True, sharey=True)
+    _, ax = plt.subplots(4, 3, figsize=(8, 14), sharex=True, sharey=True)
     lineidx = []
     print('min max of reconstructions:',
       np.amin(recon),
@@ -32,12 +109,13 @@ def plot_recon(recon, plot_path, title):
     if plot_path is not None:
         print(f"Saving plot to {plot_path}")
         plt.savefig(plot_path)
-    else:
-        print("Plot path is None, not saving plot.")
-    plt.savefig(plot_path)
+
     plt.show()
 
 
+###########################
+# Reconstruction function #
+###########################
 def run_reconstruction(data, params):
     """
     params: dict with keys:
@@ -135,58 +213,12 @@ def run_reconstruction(data, params):
     return end-beg
 
 
-def load_data(data_path):
-    data = np.load(data_path)
-    n_steps, _, _ = data.shape
-    thetas = calc_thetas(n_steps, half=False)
-    return data, thetas
-
-
-def data2saveFormat(data, bit=16):
-    mn, mx = np.amin(data), np.amax(data)
-    if bit == 16:
-        ans = ((data - mn)/(mx-mn)*4095).astype(np.int16)
-    elif bit == 8:
-        ans = ((data - mn)/(mx-mn)*255).astype(np.int8)
-    else:
-        raise ValueError('unknown bit parameter value')
-    return ans
-
-
-def saveVolume():
-    pass
-
-
-def norm_max(img):
-    """ normalize by division by maximum """
-    return img/np.amax(img)
-
-
-def sharpness_single(img):
-    """ Sharpness of img, first normalize and then evaluate sqrt of
-    gradients -> average them
-    """
-    norm_img = norm_max(img)
-    gy, gx = np.gradient(norm_img)
-    gnorm = np.sqrt(gx**2 + gy**2)
-    return np.average(gnorm)
-
-
-def sharpness_stack(data: np.ndarray) -> list[float]:
-    """ Run sharpness for every img in the stack
-    Args:
-        data (np.ndarray): 3d stack of images
-
-    Return:
-        list of sharpness values per image
-    """
-    sharpness = []
-    for img in tqdm(data):
-        sharpness.append(sharpness_single(img))
-    return sharpness
-
-
-def run_fbp_thread(data, thetas, centers, recon_algo):
+def run_fbp_thread(
+        data: np.ndarray,
+        thetas:np.ndarray,
+        centers: list[float],
+        recon_algo: str = 'art',
+    ) -> np.ndarray:
     height = data.shape[1]
     r1 = tom.recon(data[:, height//2:height//2+1, :], thetas,
                    center=centers[height//2],
@@ -212,7 +244,23 @@ def run_fbp_thread(data, thetas, centers, recon_algo):
     return data_recon
 
 
-def recon_thread(idx, thetas, center, arr, arr_out, recon_algo):
+def recon_thread(idx:int,
+                 thetas: np.ndarray,
+                 center: float,
+                 arr: np.ndarray,
+                 arr_out: np.ndarray,
+                 recon_algo: str,
+                 ) -> None:
+    """ Thread function for reconstruction
+
+    Args:
+        idx (int): index of the slice to reconstruct
+        thetas (np.ndarray): projection angles
+        center (float): center of rotation
+        arr (np.ndarray): input sinogram array
+        arr_out (np.ndarray): output reconstructed array
+        recon_algo (str): reconstruction algorithm
+    """
     arr_out[idx] = tom.recon(arr[:, idx:idx+1, :],
                              thetas,
                              center=center,
@@ -226,7 +274,23 @@ def fbp(original_stack,
         half_angle: bool = False,
         recon_every: int = 1,
         recon_algo: str = 'art',
-        ):
+        ) -> np.ndarray:
+    """
+    Docstring for fbp function. This function performs filtered back projection (FBP)
+    reconstruction on a given stack of images.
+
+    Args:
+        original_stack (np.ndarray): The input stack of images for reconstruction.
+        COR (str, optional): Center of rotation handling method. Defaults to 'calc'.
+        cor_step (int, optional): Step size for center of rotation calculation. Defaults to 100.
+        half_angle (bool, optional): Whether to use half-angle reconstruction. Defaults to False.
+        recon_every (int, optional): Interval for reconstruction. Defaults to 1.
+        recon_algo (str, optional): Reconstruction algorithm to use. Defaults to 'art'.
+    
+    Returns:
+        np.ndarray: The reconstructed image stack.
+
+    """
     print(f'Stack shape, {original_stack.shape}')
     print(f'thread call, {original_stack[:, ::recon_every, :].shape}')
     n_steps, height, _ = original_stack.shape
@@ -278,14 +342,50 @@ def fbp(original_stack,
     return recon
 
 
-def calc_thetas(steps, half=False):
-    if half:
-        return np.linspace(0., 180., steps, endpoint=False) / 180. * (2 * np.pi)
+###########################
+# Saving and loading data #
+###########################
+def load_data(data_path: str) -> tuple[np.ndarray, np.ndarray]:
+    """ Load data and calculate thetas
+
+    Args:
+        data_path (str): path to the data
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: data and thetas
+    """
+    data = np.load(data_path)
+    n_steps, _, _ = data.shape
+    thetas = calc_thetas(n_steps, half=False)
+    return data, thetas
+
+
+def data2saveFormat(data: np.ndarray, bit_depth: int = 16) -> np.ndarray:
+    """ Convert data to save format, either 8 or 16 bit depth
+
+    Args:
+        data (np.ndarray): input data
+        bit_depth (int, optional): bit depth, either 8 or 16. Defaults to 16.
+
+    Returns:
+        np.ndarray: converted data
+    """
+    mn, mx = np.amin(data), np.amax(data)
+    if bit_depth == 16:
+        ans = ((data - mn)/(mx-mn)*4095).astype(np.int16)
+    elif bit_depth == 8:
+        ans = ((data - mn)/(mx-mn)*255).astype(np.int8)
     else:
-        return np.linspace(0., 360., steps, endpoint=False) / 360. * (2 * np.pi)
+        raise ValueError('unknown bit parameter value')
+    return ans
 
 
-def rename(folder):
+def rename(folder: str) -> None:
+    """ Rename files in the folder to a standard format:
+    first 9 chars + chars from 14 to 24 + '_' + chars from 9 to 13 + '.tiff'
+    Args:
+        folder (str): path to the folder
+    """
     for name in os.listdir(folder):
         if name[-4:]=='json' or name[-4:]=='tiff':
             continue
@@ -293,6 +393,57 @@ def rename(folder):
             break
         new_name = name[:9]+name[14:24] + '_' + name[9:13] + '.tiff'
         os.rename(Path(folder).joinpath(name), Path(folder).joinpath(new_name))
+
+
+#####################
+# Metrics functions #
+#####################
+def sharpness_single(img: np.ndarray) -> float:
+    """
+    Sharpness of img, first normalize and then evaluate sqrt of
+    gradients -> average them
+
+    Args:
+        img (np.ndarray): 2d image
+
+    Returns:
+        float: sharpness value
+    """
+    norm_img = norm_max(img)
+    gy, gx = np.gradient(norm_img)
+    gnorm = np.sqrt(gx**2 + gy**2)
+    return np.average(gnorm)
+
+
+def sharpness_stack(data: np.ndarray) -> list[float]:
+    """ Run sharpness for every img in the stack
+
+    Args:
+        data (np.ndarray): 3d stack of images
+
+    Return:
+        list of sharpness values per image
+    """
+    sharpness = []
+    for img in tqdm(data):
+        sharpness.append(sharpness_single(img))
+    return sharpness
+
+
+def calc_thetas(steps: int, half=False) -> np.ndarray:
+    """ Calculate thetas for reconstruction
+    
+    Args:
+        steps (int): number of projections
+        half (bool): half or full scan
+    
+    Returns:
+        np.ndarray: thetas in radians
+    """
+    if half:
+        return np.linspace(0., 180., steps, endpoint=False) / 180. * (2 * np.pi)
+    else:
+        return np.linspace(0., 360., steps, endpoint=False) / 360. * (2 * np.pi)
 
 
 def img_to_int_type(img: np.array, dtype: np.dtype = np.int_) -> np.array:
@@ -318,11 +469,19 @@ def img_to_int_type(img: np.array, dtype: np.dtype = np.int_) -> np.array:
     return ans
 
 
-def is_positive(img, corr_type='Unknown'):
+def is_positive(img: np.ndarray, corr_type='Unknown') -> bool:
     if np.any(img < 0):
         warnings.warn(
             f'{corr_type} correction: Some pixel < 0, casting them to 0.',
             )
         # return for testing purposes, can be better?
-        return 1
-    return 0
+        return True
+    return False
+
+
+# Segmentation functions could go here
+def segment_data(arr, mu=0.7):
+    out = np.zeros(arr.shape)
+    for i, img in tqdm(enumerate(arr)):
+        out[i] = img * chan_vese(img, mu=mu)
+    return out
