@@ -8,6 +8,7 @@ napari-opt-handler
 nbformat==5.10.4
 numpy>=1.24.4
 opencv-python>=4.9
+pympler>=1.1
 PyQt5>=5.15.9
 qtpy>=2.3.0
 scipy>=1.10.1

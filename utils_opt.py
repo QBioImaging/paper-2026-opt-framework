@@ -15,6 +15,12 @@ from sklearn.linear_model import LinearRegression
 from skimage.transform import resize
 from skimage.segmentation import chan_vese
 
+from napari_opt_handler.corrections import Correct
+from pympler import muppy, summary
+
+def memory_profile():
+    all_objects = muppy.get_objects()
+    summary.print_(summary.summarize(all_objects))
 
 #################
 # Normalization #
@@ -29,6 +35,16 @@ def norm2d(arr: np.ndarray) -> np.ndarray:
 def norm_max(img):
     """ normalize by division by maximum """
     return img/np.amax(img)
+
+
+###############
+# Corrections #
+###############
+def badcorr3D(data: np.ndarray, corr: Correct) -> np.ndarray:
+    out = np.empty(data.shape)
+    for i, img in tqdm(enumerate(data)):
+        out[i] = corr.correctBadPxs(img)
+    return out
 
 
 ######################
@@ -71,15 +87,67 @@ def plot_histograms(hist_dict: dict) -> None:
     """
     plt.figure()
     for name, (hist, bin_edges) in hist_dict.items():
-        plt.title(name)
         plt.xlabel("Pixel Value")
         plt.ylabel("Frequency")
-        # plt.bar(bin_edges[:-1], hist, width=np.diff(bin_edges), label=name)
         plt.plot(bin_edges[:-1], hist, label=name)
     plt.yscale('log')
     plt.grid()
     plt.legend()
     plt.show()
+
+
+def move_up(ax, dy):
+    pos = ax.get_position()
+    ax.set_position([
+        pos.x0,
+        pos.y0 + dy,
+        pos.width,
+        pos.height
+    ])
+
+def move_horizontal(ax, dx):
+    pos = ax.get_position()
+    ax.set_position([
+        pos.x0 + dx,
+        pos.y0,
+        pos.width,
+        pos.height
+    ])
+
+
+def plot_histograms_paper(
+    ax,
+    hist_dict: dict,
+    *,
+    xlabel: str = "Pixel Value",
+    ylabel: str = "Frequency",
+    logy: bool = True,
+    logx: bool = False,
+    grid: bool = True,
+):
+    """Plot multiple histograms on a given Axes.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Target axes to draw on.
+    hist_dict : dict
+        {name: (hist, bin_edges)}
+    """
+    for name, (hist, bin_edges) in hist_dict.items():
+        ax.plot(bin_edges[:-1], hist, label=name)
+
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+
+    if logy:
+        ax.set_yscale("log")
+    if logx:
+        ax.set_xscale("log")
+    if grid:
+        ax.grid(True, which="both", ls="--", alpha=0.4)
+
+    ax.legend()
 
 
 def plot_recon(recon: np.ndarray, plot_path: str = None, title: str = 'Reconstruction slices') -> None:
@@ -372,12 +440,12 @@ def data2saveFormat(data: np.ndarray, bit_depth: int = 16) -> np.ndarray:
     """
     mn, mx = np.amin(data), np.amax(data)
     if bit_depth == 16:
-        ans = ((data - mn)/(mx-mn)*4095).astype(np.int16)
+        data = ((data - mn)/(mx-mn)*4095).astype(np.int16)
     elif bit_depth == 8:
-        ans = ((data - mn)/(mx-mn)*255).astype(np.int8)
+        data = ((data - mn)/(mx-mn)*255).astype(np.int8)
     else:
         raise ValueError('unknown bit parameter value')
-    return ans
+    return data
 
 
 def rename(folder: str) -> None:
