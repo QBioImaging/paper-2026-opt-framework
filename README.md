@@ -54,6 +54,12 @@ Open archive is 10.4 GB
 tar -xzvf raw_data.tar.gz -C raw_data/
 ```
 
+#### Data folder structure
+
+`raw_data` folder contains raw tiff files. `processed_data` contains corrected projections ready for the reconstruction, max size for 400 projections is 2.5 GB in `.npy`. `data_output` folder contains the fully sampled 3D recontructed volumes (9.5 GB `.npy` each), together with selected slices, which are for paper figure purposes.
+
+Reconstruction volumes files are larger than the processed projections. Before reconstruction, the stack of projections is a size of 2048 x 1536 x 400, while after reconstruction for uniform resolution the volumes become 2048 x 1536 x 1536 meaning intrapolation from angles to camera line pixels. In other words the ratio in voxels corresponds to the ratio of file sizes: 9.5/2.5 = 1536/400.
+
 ### Notebooks
 
 First notebook `01_process_raw_data`:
