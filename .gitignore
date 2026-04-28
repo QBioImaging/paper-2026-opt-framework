@@ -206,4 +206,6 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-data_output/
+data_output/*.npy
+raw_data/2024_08*
+processed_data/*.npy
