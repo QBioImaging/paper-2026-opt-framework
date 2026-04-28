@@ -3,13 +3,13 @@ import numpy as np
 import warnings
 import threading
 import gc
+from pathlib import Path
 from time import perf_counter
 
 import matplotlib.pyplot as plt
 import tomopy as tom
 from tomopy.recon.rotation import find_center_vo
 
-from pathlib import Path
 from tqdm import tqdm
 from sklearn.linear_model import LinearRegression
 from skimage.transform import resize
@@ -407,6 +407,8 @@ def fbp(original_stack,
                                thetas,
                                [COR]*l,
                                recon_algo=recon_algo)
+    else:
+        raise ValueError('Unknown COR parameter value')
     return recon
 
 
@@ -538,6 +540,16 @@ def img_to_int_type(img: np.array, dtype: np.dtype = np.int_) -> np.array:
 
 
 def is_positive(img: np.ndarray, corr_type='Unknown') -> bool:
+    """
+    Check if there are negative pixels in the image, if so, warn and return True
+
+    Args:
+        img (np.ndarray): image to check
+        corr_type (str): type of correction applied, for warning message
+
+    Returns:
+        bool: True if there are negative pixels, False otherwise    
+    """
     if np.any(img < 0):
         warnings.warn(
             f'{corr_type} correction: Some pixel < 0, casting them to 0.',
@@ -548,7 +560,21 @@ def is_positive(img: np.ndarray, corr_type='Unknown') -> bool:
 
 
 # Segmentation functions could go here
-def segment_data(arr, mu=0.7):
+def segment_data(arr, mu=0.7) -> np.ndarray:
+    """
+    Segment the data using chan_vese algorithm, which is a level set method
+    for image segmentation. The function applies chan_vese to each image
+    in the stack and multiplies the original image by the segmentation mask,
+    which can help to remove background and enhance features.
+
+    Args:
+        arr (np.ndarray): 3D array of images to segment
+        mu (float, optional): parameter for chan_vese, higher values make the
+            segmentation more smooth. Defaults to 0.
+
+    Returns:
+        np.ndarray: segmented data
+    """
     out = np.zeros(arr.shape)
     for i, img in tqdm(enumerate(arr)):
         out[i] = img * chan_vese(img, mu=mu)
