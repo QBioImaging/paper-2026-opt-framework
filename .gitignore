@@ -209,3 +209,6 @@ __marimo__/
 data_output/*.npy
 raw_data/2024_08*
 processed_data/*.npy
+benchmarks/results/*
+benchmarks/tomodl.ipynb
+benchmarks/recon_quality.ipynb
