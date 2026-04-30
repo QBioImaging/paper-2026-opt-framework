@@ -44,6 +44,13 @@ conda install --channel conda-forge tomopy "libtomo=*=cuda*"
 
 The requirements contain standard python image processing libraries and packages developed by us. However for the purpose here, we import only specific modules from those, instead of using then as napari plugins, which aslo demonstrates the flexibility of the source code.
 
+Version compatibility might be an issue. The codes were tested with
+
+python  3.10.0
+astra   2.4.0
+numpy   2.2.6
+torch   2.3.0+cu121
+
 ### Data
 raw data are deposited at Zenodo (should be bioimage? perhaps), here is [programatic way](https://www.diehlpk.de/blog/zenodo-wget/) to pull the data.
 

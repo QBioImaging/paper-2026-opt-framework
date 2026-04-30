@@ -196,6 +196,11 @@ def run_reconstruction(data, params):
         - save_path: str, where to save npy (optional)
         - plot: bool, whether to plot (optional)
         - plot_title: str, title for plot (optional)
+
+    Returns:
+        tuple[np.ndarray | None, float]:
+            (recon, elapsed_seconds). If save_path is provided, recon is None
+            after saving to disk. Otherwise, recon is returned in memory.
     """
     undesample = params.get('undersample', 1)
     resize_row = params.get('resize_row', None)
@@ -216,7 +221,8 @@ def run_reconstruction(data, params):
         print(f"Data shape after resizing: {data.shape}")
 
         # CAREFUL, center pixel needs to be changed too
-        center = int(center / width * resize_row)
+        # center = int(center / width * resize_row)
+        center = center / width * resize_row
 
     # this is useful for CPU FBB, otherwise it will be too slow
     if undesample > 1:
@@ -262,6 +268,10 @@ def run_reconstruction(data, params):
     # recon = recon.astype(np.uint16, copy=False)
     # print(f"Reconstruction shape: {recon.shape}, dtype: {recon.dtype}")
 
+    if plot and save_path is not None:
+        plot_path = save_path.replace('.npy', '_plot.png')
+        plot_recon(recon, plot_path, plot_title)
+
     if save_path is not None:
         # save bothe the recon and the parameters used
         params_path = save_path.replace('.npy', '_params.npy')
@@ -272,13 +282,11 @@ def run_reconstruction(data, params):
         np.save(save_path, recon)
         print(f"Reconstruction saved to {save_path}")
 
-    if plot and save_path is not None:
-        plot_path = save_path.replace('.npy', '_plot.png')
-        plot_recon(recon, plot_path, plot_title)
+        del recon
+        gc.collect()
+        return None, end - beg
 
-    del recon
-    gc.collect()
-    return end-beg
+    return recon, end - beg
 
 
 def run_fbp_thread(
