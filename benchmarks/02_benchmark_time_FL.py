@@ -35,6 +35,7 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 @dataclass(frozen=True)
 class MethodSpec:
     name: str
+    caller: str
     key_suffix: str
     params: dict
     save_name: str | None
@@ -43,22 +44,88 @@ class MethodSpec:
 METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
     25: [
         MethodSpec(
-            name="FBP CUDA",
-            key_suffix="cuda_tomopy_fbp_stride-1",
+            name="FBP GPU",
+            caller="tomopy",
+            key_suffix="tomopy_fbp_gpu_stride-1",
             params={
                 "undersample": 1,
                 "algorithm": tom.astra,
                 "options": {"proj_type": "cuda", "method": "FBP_CUDA"},
                 "ncore": 1,
-                "plot_title": "FBP CUDA FL 25 Reconstruction",
+                "plot_title": "FBP GPU FL 25 Reconstruction",
             },
-            save_name="0801_fl_lp590_25_recon.npy",
+            save_name="0801_fl_lp590_25_tomopy_fbp_gpu_recon.npy",
         ),
         MethodSpec(
-            name="SART CUDA",
-            key_suffix="cuda_tomopy_sart_stride-100",
+            name="FBP GPU",
+            caller="tomopari",
+            key_suffix="tomopari_fbp_gpu_stride-1",
             params={
-                "undersample": 100,
+                "method": u.Rec_Modes.FBP_GPU.value,
+                "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
+                "undersample": 1,
+                "order_mode": 0,
+                "batch_process": 32,
+                "is_half_rotation": False,
+                "clip_to_circle": True,
+                "plot_title": "FBP GPU FL 25 Reconstruction",
+            },
+            save_name="0801_fl_lp590_25_tomopari_fbp_gpu_recon.npy",
+        ),
+        MethodSpec(
+            name="FBP CPU",
+            caller="tomopari",
+            key_suffix="tomopari_fbp_cpu_stride-200",
+            params={
+                "method": u.Rec_Modes.FBP_CPU.value,
+                "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
+                "undersample": 200,
+                "order_mode": 0,
+                "batch_process": 1,
+                "is_half_rotation": False,
+                "clip_to_circle": True,
+                "plot_title": "FBP CPU FL 25 Reconstruction",
+            },
+            save_name="0801_fl_lp590_25_tomopari_fbp_cpu_recon.npy",
+        ),
+        MethodSpec(
+            name="TOMODL GPU",
+            caller="tomopari",
+            key_suffix="tomopari_tomodl_gpu_stride-200",
+            params={
+                "method": u.Rec_Modes.TOMODL_GPU.value,
+                "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
+                "undersample": 200,
+                "order_mode": 0,
+                "batch_process": 12,
+                "is_half_rotation": False,
+                "clip_to_circle": True,
+                "plot_title": "TOMODL GPU FL 25 Reconstruction",
+            },
+            save_name="0801_fl_lp590_25_tomopari_tomodl_gpu_recon.npy",
+        ),
+        MethodSpec(
+            name="TOMODL CPU",
+            caller="tomopari",
+            key_suffix="tomopari_tomodl_cpu_stride-200",
+            params={
+                "method": u.Rec_Modes.TOMODL_CPU.value,
+                "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
+                "undersample": 200,
+                "order_mode": 0,
+                "batch_process": 1,
+                "is_half_rotation": False,
+                "clip_to_circle": True,
+                "plot_title": "TOMODL CPU FL 25 Reconstruction",
+            },
+            save_name="0801_fl_lp590_25_tomopari_tomodl_cpu_recon.npy",
+        ),
+        MethodSpec(
+            name="SART GPU",
+            caller="tomopy",
+            key_suffix="tomopy_sart_gpu_stride-200",
+            params={
+                "undersample": 200,
                 "algorithm": tom.astra,
                 "options": {
                     "method": "SART",
@@ -66,53 +133,95 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
                     "proj_type": "linear",
                     "extra_options": {"MinConstraint": 0},
                 },
-                "plot_title": "SART CUDA FL 25 Reconstruction",
+                "plot_title": "SART GPU FL 25 Reconstruction",
             },
-            save_name="0801_fl_lp590_25_sart_recon.npy",
-        ),
-        MethodSpec(
-            name="FBP CPU ncore=1",
-            key_suffix="tomopy_fbp_cpu_stride-100_core-1",
-            params={
-                "undersample": 100,
-                "algorithm": "fbp",
-                "filter_name": "ramlak",
-                "ncore": 1,
-                "plot_title": "FBP tomopy FL ncore=1 25 Reconstruction",
-            },
-            save_name=None,
-        ),
-        MethodSpec(
-            name="FBP CPU ncore=8",
-            key_suffix="tomopy_fbp_cpu_stride-1_core-8",
-            params={
-                "undersample": 1,
-                "algorithm": "fbp",
-                "filter_name": "ramlak",
-                "ncore": 8,
-                "plot_title": "FBP tomopy FL ncore=8 25 Reconstruction",
-            },
-            save_name="0801_fl_lp590_25_cpu_recon.npy",
+            save_name="0801_fl_lp590_25_tomopy_sart_gpu_recon.npy",
         ),
     ],
     50: [
         MethodSpec(
-            name="FBP CUDA",
-            key_suffix="cuda_tomopy_fbp_stride-1",
+            name="FBP GPU",
+            caller="tomopy",
+            key_suffix="tomopy_fbp_gpu_stride-1",
             params={
                 "undersample": 1,
                 "algorithm": tom.astra,
                 "options": {"proj_type": "cuda", "method": "FBP_CUDA"},
                 "ncore": 1,
-                "plot_title": "FBP CUDA FL 50 Reconstruction",
+                "plot_title": "FBP GPU FL 50 Reconstruction",
             },
-            save_name="0801_fl_lp590_50_recon.npy",
+            save_name="0801_fl_lp590_50_tomopy_fbp_gpu_recon.npy",
         ),
         MethodSpec(
-            name="SART CUDA",
-            key_suffix="cuda_tomopy_sart_stride-100",
+            name="FBP GPU",
+            caller="tomopari",
+            key_suffix="tomopari_fbp_gpu_stride-1",
             params={
-                "undersample": 100,
+                "method": u.Rec_Modes.FBP_GPU.value,
+                "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
+                "undersample": 1,
+                "order_mode": 0,
+                "batch_process": 32,
+                "is_half_rotation": False,
+                "clip_to_circle": True,
+                "plot_title": "FBP GPU FL 50 Reconstruction",
+            },
+            save_name="0801_fl_lp590_50_tomopari_fbp_gpu_recon.npy",
+        ),
+        MethodSpec(
+            name="FBP CPU",
+            caller="tomopari",
+            key_suffix="tomopari_fbp_cpu_stride-200",
+            params={
+                "method": u.Rec_Modes.FBP_CPU.value,
+                "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
+                "undersample": 200,
+                "order_mode": 0,
+                "batch_process": 1,
+                "is_half_rotation": False,
+                "clip_to_circle": True,
+                "plot_title": "FBP CPU FL 50 Reconstruction",
+            },
+            save_name="0801_fl_lp590_50_tomopari_fbp_cpu_recon.npy",
+        ),
+        MethodSpec(
+            name="TOMODL GPU",
+            caller="tomopari",
+            key_suffix="tomopari_tomodl_gpu_stride-200",
+            params={
+                "method": u.Rec_Modes.TOMODL_GPU.value,
+                "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
+                "undersample": 200,
+                "order_mode": 0,
+                "batch_process": 12,
+                "is_half_rotation": False,
+                "clip_to_circle": True,
+                "plot_title": "TOMODL GPU FL 50 Reconstruction",
+            },
+            save_name="0801_fl_lp590_50_tomopari_tomodl_gpu_recon.npy",
+        ),
+        MethodSpec(
+            name="TOMODL CPU",
+            caller="tomopari",
+            key_suffix="tomopari_tomodl_cpu_stride-200",
+            params={
+                "method": u.Rec_Modes.TOMODL_CPU.value,
+                "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
+                "undersample": 200,
+                "order_mode": 0,
+                "batch_process": 1,
+                "is_half_rotation": False,
+                "clip_to_circle": True,
+                "plot_title": "TOMODL CPU FL 50 Reconstruction",
+            },
+            save_name="0801_fl_lp590_50_tomopari_tomodl_cpu_recon.npy",
+        ),
+        MethodSpec(
+            name="SART GPU",
+            caller="tomopy",
+            key_suffix="tomopy_sart_gpu_stride-200",
+            params={
+                "undersample": 200,
                 "algorithm": tom.astra,
                 "options": {
                     "method": "SART",
@@ -120,53 +229,31 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
                     "proj_type": "linear",
                     "extra_options": {"MinConstraint": 0},
                 },
-                "plot_title": "SART CUDA FL 50 Reconstruction",
+                "plot_title": "SART GPU FL 50 Reconstruction",
             },
-            save_name="0801_fl_lp590_50_sart_recon.npy",
-        ),
-        MethodSpec(
-            name="FBP CPU ncore=1",
-            key_suffix="tomopy_fbp_cpu_stride-100_core-1",
-            params={
-                "undersample": 100,
-                "algorithm": "fbp",
-                "filter_name": "ramlak",
-                "ncore": 1,
-                "plot_title": "FBP tomopy FL ncore=1 50 Reconstruction",
-            },
-            save_name=None,
-        ),
-        MethodSpec(
-            name="FBP CPU ncore=8",
-            key_suffix="tomopy_fbp_cpu_stride-1_core-8",
-            params={
-                "undersample": 1,
-                "algorithm": "fbp",
-                "filter_name": "ramlak",
-                "ncore": 8,
-                "plot_title": "FBP tomopy FL ncore=8 50 Reconstruction",
-            },
-            save_name="0801_fl_lp590_50_cpu_recon.npy",
+            save_name="0801_fl_lp590_50_tomopy_sart_gpu_recon.npy",
         ),
     ],
     400: [
         MethodSpec(
-            name="FBP CUDA",
-            key_suffix="cuda_tomopy_fbp_stride-1",
+            name="FBP GPU",
+            caller="tomopy",
+            key_suffix="tomopy_fbp_gpu_stride-1",
             params={
                 "undersample": 1,
                 "algorithm": tom.astra,
                 "options": {"proj_type": "cuda", "method": "FBP_CUDA"},
                 "ncore": 1,
-                "plot_title": "FBP CUDA FL 400 Reconstruction",
+                "plot_title": "FBP GPU FL 400 Reconstruction",
             },
-            save_name="0801_fl_lp590_400_recon.npy",
+            save_name="0801_fl_lp590_400_tomopy_fbp_gpu_recon.npy",
         ),
         MethodSpec(
-            name="SART CUDA",
-            key_suffix="cuda_tomopy_sart_stride-100",
+            name="SART GPU",
+            caller="tomopy",
+            key_suffix="tomopy_sart_gpu_stride-200",
             params={
-                "undersample": 100,
+                "undersample": 200,
                 "algorithm": tom.astra,
                 "options": {
                     "method": "SART",
@@ -174,9 +261,9 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
                     "proj_type": "linear",
                     "extra_options": {"MinConstraint": 0},
                 },
-                "plot_title": "SART CUDA FL 400 Reconstruction",
+                "plot_title": "SART GPU FL 400 Reconstruction",
             },
-            save_name="0801_fl_lp590_400_sart_recon.npy",
+            save_name="0801_fl_lp590_400_tomopy_sart_gpu_recon.npy",
         ),
     ],
 }
@@ -206,7 +293,7 @@ def _run_method(
     benchmark_dict: dict[str, list[float]],
 ) -> None:
     print("\n ##################### \n")
-    print(f"Running {method.name} for {MODALITY_KEY.upper()} {step} steps")
+    print(f"Running {method.name} ({method.caller}) for {MODALITY_KEY.upper()} {step} steps")
 
     save_path = None
     if method.save_name is not None:
@@ -215,7 +302,14 @@ def _run_method(
     params = _base_params(thetas, save_path, method.params["plot_title"])
     params.update(method.params)
 
-    _, first_time = u.run_reconstruction(data, params)
+    if method.caller == "tomopy":
+        runner = u.run_reconstruction
+    elif method.caller == "tomopari":
+        runner = u.reconstruct_tomopari
+    else:
+        raise ValueError(f"Unknown method caller: {method.caller}")
+
+    _, first_time = runner(data, params)
     if not RUN_BENCHMARKS:
         return
 
@@ -225,7 +319,7 @@ def _run_method(
     for _ in range(REPEATS - 1):
         repeat_params = dict(params)
         repeat_params["save_path"] = None
-        _, elapsed = u.run_reconstruction(data, repeat_params)
+        _, elapsed = runner(data, repeat_params)
         times.append(elapsed)
 
     benchmark_dict[key] = times

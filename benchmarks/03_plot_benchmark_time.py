@@ -4,7 +4,7 @@ from matplotlib import pyplot as plt
 
 # load the dictionary
 # Fluorescence
-project_root = Path.cwd().resolve().parent
+project_root = Path(__file__).resolve().parents[1]
 with open(project_root / 'benchmarks/results/benchmarks_fl.npy', 'rb') as f:
     BDICT = np.load(f, allow_pickle=True).item()
 

@@ -18,7 +18,7 @@ from time import perf_counter
 import matplotlib.pyplot as plt
 from skimage.metrics import mean_squared_error, peak_signal_noise_ratio, structural_similarity
 
-project_root = Path.cwd().resolve().parent
+project_root = Path(__file__).resolve().parents[1]
 if not (project_root / "utils").exists():
     raise Exception(f"You have to keep the original repository structure, current project root: {project_root}")
 if str(project_root) not in sys.path:
@@ -89,24 +89,24 @@ def compare_reconstructions_undersample_gt(recon, ground_truth, undersample):
 # This works for recons which were not undersampled
 # Paths to your reconstructions and ground truth
 recon_paths = [
-    project_root / 'benchmarks/results/0801_fl_lp590_25_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_25_cpu_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_50_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_50_cpu_recon.npy',
+    project_root / 'benchmarks/results/0801_fl_lp590_25_tomopy_fbp_gpu_recon.npy',
+    project_root / 'benchmarks/results/0801_fl_lp590_25_tomopari_fbp_gpu_recon.npy',
+    project_root / 'benchmarks/results/0801_fl_lp590_50_tomopy_fbp_gpu_recon.npy',
+    project_root / 'benchmarks/results/0801_fl_lp590_50_tomopari_fbp_gpu_recon.npy',
 ]
-ground_truth_path = project_root / 'benchmarks/results/0801_fl_lp590_400_recon.npy'  # or a true ground truth recon
+GT_path = project_root / 'benchmarks/results/0801_fl_lp590_400_tomopy_fbp_gpu_recon.npy'  # or a true ground truth recon
 
 # Load ground truth reconstruction (should be a full recon, not raw data)
-ground_truth = load_recon(ground_truth_path)
-print(f"Ground truth shape: {ground_truth.shape}")
+GT = load_recon(GT_path)
+print(f"Ground truth shape: {GT.shape}")
 
 
 METRICS = {}
 for path in recon_paths:
     recon = load_recon(path)
     print(f"Loaded reconstruction from {path} with shape: {recon.shape}")
-    assert recon.shape == ground_truth.shape, f"Reconstruction shape {recon.shape} does not match ground truth shape {ground_truth.shape}"
-    metrics = compare_reconstructions(recon, ground_truth)
+    assert recon.shape == GT.shape, f"Reconstruction shape {recon.shape} does not match ground truth shape {GT.shape}"
+    metrics = compare_reconstructions(recon, GT)
     print(metrics)
     METRICS[os.path.basename(path)] = metrics
     print('##################################')
@@ -115,14 +115,20 @@ for path in recon_paths:
 ## Undersampled paths ##
 ########################
 recon_paths = [
-    project_root / 'benchmarks/results/0801_fl_lp590_25_sart_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_50_sart_recon.npy',
+    project_root / 'benchmarks/results/0801_fl_lp590_25_tomopari_fbp_cpu_recon.npy',
+    project_root / 'benchmarks/results/0801_fl_lp590_25_tomopari_tomodl_gpu_recon.npy',
+    project_root / 'benchmarks/results/0801_fl_lp590_25_tomopari_tomodl_cpu_recon.npy',
+    project_root / 'benchmarks/results/0801_fl_lp590_25_tomopy_sart_gpu_recon.npy',
+    project_root / 'benchmarks/results/0801_fl_lp590_50_tomopari_fbp_cpu_recon.npy',
+    project_root / 'benchmarks/results/0801_fl_lp590_50_tomopari_tomodl_gpu_recon.npy',
+    project_root / 'benchmarks/results/0801_fl_lp590_50_tomopari_tomodl_cpu_recon.npy',
+    project_root / 'benchmarks/results/0801_fl_lp590_50_tomopy_sart_gpu_recon.npy',
 ]
 
 for path in recon_paths:
     recon = load_recon(path)
     print(f"Loaded undersampled reconstruction from {path} with shape: {recon.shape}")
-    metrics = compare_reconstructions_undersample_gt(recon, ground_truth, 100)
+    metrics = compare_reconstructions_undersample_gt(recon, GT, 200)
     print(metrics)
     METRICS[os.path.basename(path)] = metrics
     print('##################################')

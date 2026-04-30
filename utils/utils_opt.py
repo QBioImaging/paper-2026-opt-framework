@@ -1,22 +1,24 @@
+from enum import Enum
 import os
 import numpy as np
 import warnings
-import threading
+from scipy import ndimage as ndi
+from tomopari.processors.OPTProcessor import OPTProcessor
+
 import gc
 from pathlib import Path
 from time import perf_counter
 
 import matplotlib.pyplot as plt
 import tomopy as tom
-from tomopy.recon.rotation import find_center_vo
 
 from tqdm import tqdm
-from sklearn.linear_model import LinearRegression
 from skimage.transform import resize
 from skimage.segmentation import chan_vese
 
 from napari_opt_handler.corrections import Correct
 from pympler import muppy, summary
+
 
 def memory_profile():
     all_objects = muppy.get_objects()
@@ -184,6 +186,109 @@ def plot_recon(recon: np.ndarray, plot_path: str = None, title: str = 'Reconstru
 ###########################
 # Reconstruction function #
 ###########################
+class Rec_Modes(Enum):
+    """Supported reconstruction modes."""
+    FBP_CPU = 0
+    FBP_GPU = 1
+    TWIST_CPU = 2
+    TOMODL_CPU = 3
+    TOMODL_GPU = 4
+    UNET_CPU = 5
+    UNET_GPU = 6
+
+
+def reconstruct_tomopari(
+    sinogram: np.ndarray,
+    params: dict,
+) -> tuple[np.ndarray, float]:
+    """
+    Reconstructs a sinogram using the OPTProcessor.
+    """
+    opt = OPTProcessor()
+    opt.rec_process = params.get("method", Rec_Modes.FBP_CPU)
+    opt.filter_name = params.get("filter", None)
+    opt.use_filter = True if opt.filter_name is not None else False
+    opt.batch_size = params.get("batch_process", 4)
+    opt.is_half_rotation = params.get("is_half_rotation", False)
+    opt.order_mode = params.get("order_mode", 0)
+    opt.clip_to_circle = params.get("clip_to_circle", False)
+    opt.set_reconstruction_process()
+
+    undersample = params.get('undersample', 1)
+    circ_mask = params.get('circ_mask', 0.95)
+    save_path = params.get('save_path', None)
+    plot = params.get('plot', False)
+    plot_title = params.get('plot_title', 'Reconstruction')
+
+    if opt.order_mode == 0:
+        sinogram = np.moveaxis(sinogram, 1, 2)
+        if undersample > 1:
+            sinogram = sinogram[:, :, ::undersample]
+        opt.theta, Q, Z = sinogram.shape
+        print(f"Sinogram shape after undersampling: {sinogram.shape}")
+    else:
+        raise NotImplementedError(
+            "Only order_mode 0 is implemented, which is the default for OPTProcessor",
+        )
+
+    recon = []
+    if params.get("resize_row", None) is not None:
+        opt.resize_val = params["resize_row"]
+        sinogram = opt.resize(sinogram)
+        print(f"Data shape after resizing: {sinogram.shape}")
+        center_shift = opt.resize_val / 2 - params["center"] / Q * opt.resize_val
+    else:
+        center_shift = Q / 2 - params["center"] / Q
+
+    if abs(center_shift) > 1e-3:
+        sinogram = ndi.shift(sinogram, (0, center_shift, 0), mode="nearest")
+
+    slice_reconstruction = range(Z)
+    batch_start = slice_reconstruction[0]
+    batch_end = batch_start + opt.batch_size
+    begin_time = perf_counter()
+    while batch_start <= slice_reconstruction[-1]:
+        print("Reconstructing slices {} to {}".format(batch_start, batch_end), end="\r")
+        zidx = slice(batch_start, batch_end)
+        sino_batch = sinogram[:, :, zidx]
+        # print(f"Batch shape before processing: {sino_batch.shape}")
+        if opt.order_mode == 0:
+            sino_batch = sino_batch.transpose(1, 0, 2)
+        reconstruction = opt.reconstruct(sino_batch)
+        recon.append(reconstruction)
+        batch_start = batch_end
+        batch_end += opt.batch_size
+    end_time = perf_counter()
+
+    del sinogram
+    gc.collect()
+
+    recon = np.concatenate(recon, axis=-1)
+    recon = np.rollaxis(recon, -1)
+    recon = tom.circ_mask(recon, axis=0, ratio=circ_mask).astype(np.float16)
+    print(f"Reconstruction time: {end_time-begin_time} seconds")
+    print(f'Reconstruction (min, max): {recon.min()}, {recon.max()} with type {recon.dtype}')
+
+    if plot and save_path is not None:
+        plot_path = save_path.replace('.npy', '_plot.png')
+        plot_recon(recon, plot_path, plot_title)
+
+    if save_path is not None:
+        params_path = save_path.replace('.npy', '_params.npy')
+
+        np.save(params_path, params)
+        print(f"Parameters saved to {params_path}")
+
+        np.save(save_path, recon)
+        print(f"Reconstruction saved to {save_path}")
+
+        del recon
+        gc.collect()
+        return None, end_time - begin_time
+
+    return recon, end_time - begin_time
+
+
 def run_reconstruction(data, params):
     """
     params: dict with keys:
@@ -202,7 +307,7 @@ def run_reconstruction(data, params):
             (recon, elapsed_seconds). If save_path is provided, recon is None
             after saving to disk. Otherwise, recon is returned in memory.
     """
-    undesample = params.get('undersample', 1)
+    undersample = params.get('undersample', 1)
     resize_row = params.get('resize_row', None)
     thetas = params['thetas']
     center = params['center']
@@ -225,11 +330,11 @@ def run_reconstruction(data, params):
         center = center / width * resize_row
 
     # this is useful for CPU FBB, otherwise it will be too slow
-    if undesample > 1:
-        data = data[:, ::undesample, :]
+    if undersample > 1:
+        data = data[:, ::undersample, :]
 
     if options is not None:
-        beg = perf_counter()
+        begin_time = perf_counter()
         recon = tom.recon(
             data,
             thetas,
@@ -238,9 +343,9 @@ def run_reconstruction(data, params):
             options=options,
             ncore=ncore,
         )
-        end = perf_counter()
+        end_time = perf_counter()
     else:
-        beg = perf_counter()
+        begin_time = perf_counter()
         print(f'No astra, {algorithm}, {filter_name}')
         recon = tom.recon(
             data,
@@ -250,15 +355,13 @@ def run_reconstruction(data, params):
             filter_name=filter_name,
             ncore=ncore,
         )
-        end = perf_counter()
-    
+        end_time = perf_counter()
+
     del data
     gc.collect()
 
     recon = tom.circ_mask(recon, axis=0, ratio=circ_mask).astype(np.float16)
-    print(f"Reconstruction time: {end-beg} seconds")
-
-    # CIRCLE or no circle mask
+    print(f"Reconstruction time: {end_time-begin_time} seconds")
     print(f'Reconstruction (min, max): {recon.min()}, {recon.max()} with type {recon.dtype}')
 
     # normalize to uint16, I do not want, clean data are float16
@@ -273,151 +376,19 @@ def run_reconstruction(data, params):
         plot_recon(recon, plot_path, plot_title)
 
     if save_path is not None:
-        # save bothe the recon and the parameters used
         params_path = save_path.replace('.npy', '_params.npy')
-        
+
         np.save(params_path, params)
         print(f"Parameters saved to {params_path}")
-        
+
         np.save(save_path, recon)
         print(f"Reconstruction saved to {save_path}")
 
         del recon
         gc.collect()
-        return None, end - beg
+        return None, end_time - begin_time
 
-    return recon, end - beg
-
-
-def run_fbp_thread(
-        data: np.ndarray,
-        thetas:np.ndarray,
-        centers: list[float],
-        recon_algo: str = 'art',
-    ) -> np.ndarray:
-    height = data.shape[1]
-    r1 = tom.recon(data[:, height//2:height//2+1, :], thetas,
-                   center=centers[height//2],
-                   sinogram_order=False,
-                   algorithm=recon_algo)
-    threads = [None] * height
-    data_recon = np.zeros((data.shape[1], *r1.squeeze().shape),
-                          dtype=np.float32,
-                          )
-    start = perf_counter()
-    for i in tqdm(range(height)):
-        threads[i] = threading.Thread(target=recon_thread,
-                                      args=[i, thetas, centers[i],
-                                            data, data_recon,
-                                            recon_algo],
-                                      )
-        threads[i].start()
-
-    for i in tqdm(range(len(threads))):
-        threads[i].join()
-    end = perf_counter()
-    print(f'Wall time: {end - start}')
-    return data_recon
-
-
-def recon_thread(idx:int,
-                 thetas: np.ndarray,
-                 center: float,
-                 arr: np.ndarray,
-                 arr_out: np.ndarray,
-                 recon_algo: str,
-                 ) -> None:
-    """ Thread function for reconstruction
-
-    Args:
-        idx (int): index of the slice to reconstruct
-        thetas (np.ndarray): projection angles
-        center (float): center of rotation
-        arr (np.ndarray): input sinogram array
-        arr_out (np.ndarray): output reconstructed array
-        recon_algo (str): reconstruction algorithm
-    """
-    arr_out[idx] = tom.recon(arr[:, idx:idx+1, :],
-                             thetas,
-                             center=center,
-                             sinogram_order=False,
-                             algorithm=recon_algo)#.astype(np.int16)
-
-
-def fbp(original_stack,
-        COR: str = 'calc',
-        cor_step: int = 100,
-        half_angle: bool = False,
-        recon_every: int = 1,
-        recon_algo: str = 'art',
-        ) -> np.ndarray:
-    """
-    Docstring for fbp function. This function performs filtered back projection (FBP)
-    reconstruction on a given stack of images.
-
-    Args:
-        original_stack (np.ndarray): The input stack of images for reconstruction.
-        COR (str, optional): Center of rotation handling method. Defaults to 'calc'.
-        cor_step (int, optional): Step size for center of rotation calculation. Defaults to 100.
-        half_angle (bool, optional): Whether to use half-angle reconstruction. Defaults to False.
-        recon_every (int, optional): Interval for reconstruction. Defaults to 1.
-        recon_algo (str, optional): Reconstruction algorithm to use. Defaults to 'art'.
-    
-    Returns:
-        np.ndarray: The reconstructed image stack.
-
-    """
-    print(f'Stack shape, {original_stack.shape}')
-    print(f'thread call, {original_stack[:, ::recon_every, :].shape}')
-    n_steps, height, _ = original_stack.shape
-    thetas = calc_thetas(n_steps, half=half_angle)
-
-    if COR == 'calc':
-        print(f'Find COR every {cor_step} pixels vertically')
-        center = []
-        X = []
-        print('Center of rotation')
-        for i in tqdm(range(0, int(height / cor_step)-1)):
-            X.append(i * cor_step)
-            if half_angle:
-                cor = find_center_vo(
-                                original_stack[:n_steps, :, :],
-                                smin=-50, smax=50,
-                                ncore=1,
-                                ind=i * cor_step,
-                                ratio=0.5)
-            else:
-                cor = find_center_vo(
-                                original_stack[:n_steps//2, :, :],
-                                smin=-50, smax=50,
-                                ncore=1,
-                                ind=i * cor_step,
-                                ratio=0.5)
-            center.append(cor)
-        print(np.mean(center), center)
-        # linear regression
-        lm = LinearRegression()
-        lm.fit(np.array(X).reshape(-1, 1), center)
-        print(f'coeficients: a={lm.coef_[0]}, b={lm.intercept_}.')
-        centers = range(height) * lm.coef_[0] + lm.intercept_
-        # print('Running FBP with a mean of the CORs')
-        # recon = run_fbp(original_stack, thetas, np.mean(center))
-        print('Running FBP with  linearly fitted CORs')
-        recon = run_fbp_thread(original_stack[:, ::recon_every, :],
-                               thetas,
-                               centers[::recon_every],
-                               recon_algo=recon_algo)
-
-    elif type(COR) == float:
-        print(f'Running FBP with COR const {COR}')
-        l = original_stack[:, ::recon_every, :].shape[1]
-        recon = run_fbp_thread(original_stack[:, ::recon_every, :],
-                               thetas,
-                               [COR]*l,
-                               recon_algo=recon_algo)
-    else:
-        raise ValueError('Unknown COR parameter value')
-    return recon
+    return recon, end_time - begin_time
 
 
 ###########################
