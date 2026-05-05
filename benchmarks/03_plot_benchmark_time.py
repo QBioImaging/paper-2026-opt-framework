@@ -2,44 +2,66 @@ import numpy as np
 from pathlib import Path
 from matplotlib import pyplot as plt
 
-# load the dictionary
-# Fluorescence
 project_root = Path(__file__).resolve().parents[1]
+
+_ACRONYMS = {'fbp', 'cpu', 'gpu', 'sart', 'cuda', 'art', 'tv', 'mlem', 'gridrec', 'tomodl', 'tr', 'fl'}
+_STEP_COLORS = {'25': 'tab:blue', '50': 'tab:orange', '400': 'tab:green', '800': 'tab:red'}
+_DEFAULT_COLOR = 'tab:gray'
+
+
+def _format_label(raw: str) -> str:
+    # key format: {modality}_{steps}_{method_key_suffix}
+    tokens = raw.replace('-', '_').split('_')
+    method_parts = tokens[2:]  # skip modality and step
+    method_parts = [p for p in method_parts if p.lower() != 'stride' and not p.isdigit()]
+    return ' '.join(p.upper() if p.lower() in _ACRONYMS else p for p in method_parts if p)
+
+
+def _bar_color(raw: str) -> str:
+    # step is the second token: {modality}_{steps}_...
+    tokens = raw.split('_')
+    step = tokens[1] if len(tokens) > 1 else ''
+    return _STEP_COLORS.get(step, _DEFAULT_COLOR)
+
+
+def _plot_times(bdict: dict, title: str, save_path: Path) -> None:
+    avg = {k: np.mean(v) for k, v in bdict.items()}
+    std = {k: np.std(v) for k, v in bdict.items()}
+    print(f"\n{title}")
+    for k, v in avg.items():
+        print(f"  {k}: {v:.2f} +- {std[k]:.2f} seconds")
+
+    sorted_items = sorted(avg.items(), key=lambda x: x[1], reverse=True)
+    fig, ax = plt.subplots()
+    for i, (raw_key, mean) in enumerate(sorted_items):
+        ax.barh(i, mean, xerr=std[raw_key], color=_bar_color(raw_key))
+    ax.set_yticks(range(len(sorted_items)))
+    ax.set_yticklabels([_format_label(raw_key) for raw_key, _ in sorted_items])
+
+    present_steps = sorted({raw.split('_')[1] for raw, _ in sorted_items if raw.split('_')[1] in _STEP_COLORS})
+    legend_handles = [
+        plt.Rectangle((0, 0), 1, 1, color=_STEP_COLORS[step], label=f"{step} steps")
+        for step in present_steps
+    ]
+    if legend_handles:
+        ax.legend(handles=legend_handles)
+
+    ax.set_xscale("log")
+    ax.set_xlabel("Time (seconds, log scale)")
+    ax.set_title(title)
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.show()
+
+
+# Fluorescence
 with open(project_root / 'benchmarks/results/benchmarks_fl.npy', 'rb') as f:
     BDICT = np.load(f, allow_pickle=True).item()
+_plot_times(BDICT, "Average Reconstruction Times, Fluorescence",
+            project_root / 'benchmarks/results/average_reconstruction_times_fl.png')
 
-# calculate average reconstruction times
-avg_recon_times = {k: np.mean(v) for k, v in BDICT.items()}
-std_recon_times = {k: np.std(v) for k, v in BDICT.items()}
-print("Average reconstruction times:")
-for k, v in avg_recon_times.items():
-    print(f"  {k}: {v:.2f} +- {std_recon_times[k]:.2f} seconds")
-
-# plot the average reconstruction times
-plt.barh(list(avg_recon_times.keys()), list(avg_recon_times.values()))
-plt.xlabel("Time (seconds)")
-plt.title("Average Reconstruction Times, Fluorescence")
-plt.tight_layout()
-plt.savefig(project_root / 'benchmarks/results/average_reconstruction_times_fl.png')
-plt.show()
-
-
-# load the dictionary
 # Transmission
 with open(project_root / 'benchmarks/results/benchmarks_tr.npy', 'rb') as f:
     BDICT = np.load(f, allow_pickle=True).item()
-
-# calculate average reconstruction times
-avg_recon_times = {k: np.mean(v) for k, v in BDICT.items()}
-std_recon_times = {k: np.std(v) for k, v in BDICT.items()}
-print("Average reconstruction times:")
-for k, v in avg_recon_times.items():
-    print(f"  {k}: {v:.2f} +- {std_recon_times[k]:.2f} seconds")
-
-# plot the average reconstruction times
-plt.barh(list(avg_recon_times.keys()), list(avg_recon_times.values()))
-plt.xlabel("Time (seconds)")
-plt.title("Average Reconstruction Times, Transmission")
-plt.tight_layout()
-plt.savefig(project_root / 'benchmarks/results/average_reconstruction_times_tr.png')
-plt.show()
+_plot_times(BDICT, "Average Reconstruction Times, Transmission",
+            project_root / 'benchmarks/results/average_reconstruction_times_tr.png')
