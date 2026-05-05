@@ -267,7 +267,8 @@ def reconstruct_tomopari(
     recon = np.rollaxis(recon, -1)
     recon = tom.circ_mask(recon, axis=0, ratio=circ_mask).astype(np.float16)
     print(f"Reconstruction time: {end_time-begin_time} seconds")
-    print(f'Reconstruction (min, max): {recon.min()}, {recon.max()} with type {recon.dtype}')
+    print(f"Reconstruction shape: {recon.shape}, dtype: {recon.dtype}")
+    print(f"Reconstruction (min, max): {recon.min()}, {recon.max()}")
 
     if plot and save_path is not None:
         plot_path = save_path.replace('.npy', '_plot.png')
@@ -362,7 +363,8 @@ def run_reconstruction(data, params):
 
     recon = tom.circ_mask(recon, axis=0, ratio=circ_mask).astype(np.float16)
     print(f"Reconstruction time: {end_time-begin_time} seconds")
-    print(f'Reconstruction (min, max): {recon.min()}, {recon.max()} with type {recon.dtype}')
+    print(f"Reconstruction shape: {recon.shape}, dtype: {recon.dtype}")
+    print(f"Reconstruction (min, max): {recon.min()}, {recon.max()}")
 
     # normalize to uint16, I do not want, clean data are float16
     # recon = (recon - np.amin(recon)) / (np.amax(recon) - np.amin(recon))

@@ -24,7 +24,7 @@ CIRC_MASK = 1.0
 RUN_BENCHMARKS = True
 REPEATS = 3
 PLOT = True
-STEPS_TO_RUN = (25, 50, 400)
+STEPS_TO_RUN = (25, 400)
 MODALITY_KEY = "fl"
 MODALITY_LABEL = "FLuorescence"
 
@@ -75,11 +75,11 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
         MethodSpec(
             name="FBP CPU",
             caller="tomopari",
-            key_suffix="tomopari_fbp_cpu_stride-200",
+            key_suffix="tomopari_fbp_cpu_stride-100",
             params={
                 "method": u.Rec_Modes.FBP_CPU.value,
                 "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
-                "undersample": 200,
+                "undersample": 100,
                 "order_mode": 0,
                 "batch_process": 1,
                 "is_half_rotation": False,
@@ -91,11 +91,11 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
         MethodSpec(
             name="TOMODL GPU",
             caller="tomopari",
-            key_suffix="tomopari_tomodl_gpu_stride-200",
+            key_suffix="tomopari_tomodl_gpu_stride-100",
             params={
                 "method": u.Rec_Modes.TOMODL_GPU.value,
                 "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
-                "undersample": 200,
+                "undersample": 100,
                 "order_mode": 0,
                 "batch_process": 12,
                 "is_half_rotation": False,
@@ -107,11 +107,11 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
         MethodSpec(
             name="TOMODL CPU",
             caller="tomopari",
-            key_suffix="tomopari_tomodl_cpu_stride-200",
+            key_suffix="tomopari_tomodl_cpu_stride-100",
             params={
                 "method": u.Rec_Modes.TOMODL_CPU.value,
                 "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
-                "undersample": 200,
+                "undersample": 100,
                 "order_mode": 0,
                 "batch_process": 1,
                 "is_half_rotation": False,
@@ -123,9 +123,9 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
         MethodSpec(
             name="SART GPU",
             caller="tomopy",
-            key_suffix="tomopy_sart_gpu_stride-200",
+            key_suffix="tomopy_sart_gpu_stride-100",
             params={
-                "undersample": 200,
+                "undersample": 100,
                 "algorithm": tom.astra,
                 "options": {
                     "method": "SART",
@@ -251,9 +251,9 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
         MethodSpec(
             name="SART GPU",
             caller="tomopy",
-            key_suffix="tomopy_sart_gpu_stride-200",
+            key_suffix="tomopy_sart_gpu_stride-100",
             params={
-                "undersample": 200,
+                "undersample": 100,
                 "algorithm": tom.astra,
                 "options": {
                     "method": "SART",

@@ -1,138 +1,160 @@
-"""
-This is run after 02_benchmark_time.py, where you can save the reconstructions.
-These are then loaded here to compare the quality of the reconstructions.
+"""Compute reconstruction quality metrics from discovered benchmark outputs."""
 
-The comparison is made in respect to the FBP_CUDA reconstruction of 400 steps for the FL case
-
-For the transmission case, the FBP_CUDA reconstruction of 800 steps is used.
-"""
+from dataclasses import dataclass
+from pathlib import Path
+import re
+import sys
 
 import numpy as np
-import tomopy as tom
-import os
-import sys
-from pathlib import Path
-import gc
-from tqdm import tqdm
-from time import perf_counter
-import matplotlib.pyplot as plt
 from skimage.metrics import mean_squared_error, peak_signal_noise_ratio, structural_similarity
+
 
 project_root = Path(__file__).resolve().parents[1]
 if not (project_root / "utils").exists():
-    raise Exception(f"You have to keep the original repository structure, current project root: {project_root}")
+    raise RuntimeError(
+        "You have to keep the original repository structure, "
+        f"current project root: {project_root}"
+    )
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from utils import utils_opt as u
+
+RESULTS_DIR = project_root / "benchmarks" / "results"
+OUTPUT_METRICS_TEMPLATE = "metrics_{modality}.npy"
+FILENAME_PATTERN = re.compile(
+    r"(?P<prefix>.+)_(?P<modality>[a-z]+)_lp\d+_(?P<steps>\d+)_(?P<method>.+)_recon\.npy$"
+)
 
 
-UNDERSAMPLE = 10
+@dataclass(frozen=True)
+class ReconstructionRecord:
+    path: Path
+    params_path: Path
+    modality: str
+    steps: int
+    method: str
+    undersample: int
 
-def load_recon(path):
+
+def load_recon(path: Path) -> np.ndarray:
     return np.load(path)
 
 
-def compare_reconstructions(recon, ground_truth):
-    mse = mean_squared_error(
-        ground_truth[::UNDERSAMPLE],
-        recon[::UNDERSAMPLE],
+def load_recon_params(params_path: Path) -> dict:
+    params = np.load(params_path, allow_pickle=True)
+    if isinstance(params, np.ndarray) and params.shape == ():
+        return params.item()
+    if isinstance(params, dict):
+        return params
+    raise ValueError(f"Unexpected params format in {params_path}")
+
+
+def compare_reconstruction(recon: np.ndarray, ground_truth: np.ndarray, undersample: int) -> dict:
+    aligned_ground_truth = ground_truth[::undersample].copy() if undersample > 1 else ground_truth
+    if aligned_ground_truth.shape != recon.shape:
+        raise ValueError(
+            f"Ground truth shape {aligned_ground_truth.shape} does not match "
+            f"reconstruction shape {recon.shape} after undersample={undersample}"
+        )
+
+    mse = mean_squared_error(aligned_ground_truth, recon)
+    data_range = aligned_ground_truth.max() - aligned_ground_truth.min()
+    psnr = peak_signal_noise_ratio(aligned_ground_truth, recon, data_range=data_range)
+    ssim = structural_similarity(aligned_ground_truth, recon, data_range=data_range)
+    return {
+        "MSE": mse,
+        "PSNR": [psnr],
+        "SSIM": [ssim],
+    }
+
+
+def parse_record(recon_path: Path) -> ReconstructionRecord | None:
+    match = FILENAME_PATTERN.match(recon_path.name)
+    if match is None:
+        return None
+
+    params_path = recon_path.with_name(recon_path.name.replace(".npy", "_params.npy"))
+    if not params_path.exists():
+        print(f"Skipping {recon_path.name}: missing params file {params_path.name}")
+        return None
+
+    params = load_recon_params(params_path)
+    undersample = int(params.get("undersample", 1))
+    return ReconstructionRecord(
+        path=recon_path,
+        params_path=params_path,
+        modality=match.group("modality"),
+        steps=int(match.group("steps")),
+        method=match.group("method"),
+        undersample=undersample,
     )
 
-    # For SSIM, compare slice-wise and average
-    ssim_list, psnr_list = [], []
-    psnr = peak_signal_noise_ratio(
-        ground_truth, recon,
-        data_range=ground_truth.max() - ground_truth.min(),
-    )
-    psnr_list.append(psnr)
-    ssim = structural_similarity(
-        ground_truth, recon,
-        data_range=ground_truth.max() - ground_truth.min(),
-    )
-    ssim_list.append(ssim)
-    out = {
-        'MSE': mse,
-        'PSNR': psnr_list,
-        'SSIM': ssim_list,
-        }
-    return out
+
+def discover_reconstructions(results_dir: Path) -> list[ReconstructionRecord]:
+    records: list[ReconstructionRecord] = []
+    for recon_path in sorted(results_dir.glob("*_recon.npy")):
+        record = parse_record(recon_path)
+        if record is not None:
+            records.append(record)
+    return records
 
 
-def compare_reconstructions_undersample_gt(recon, ground_truth, undersample):
-    gt = ground_truth[::undersample].copy()
-    mse = mean_squared_error(
-        gt,
-        recon,
-    )
-
-    assert gt.shape == recon.shape, f"Ground truth shape {gt.shape} does not match reconstruction shape {recon.shape}"
-    # For SSIM, compare slice-wise and average
-    ssim_list, psnr_list = [], []
-    psnr = peak_signal_noise_ratio(
-        gt, recon,
-        data_range=gt.max() - gt.min(),
-    )
-    psnr_list.append(psnr)
-    ssim = structural_similarity(
-        gt, recon,
-        data_range=gt.max() - gt.min(),
-    )
-    ssim_list.append(ssim)
-    out = {
-        'MSE': mse,
-        'PSNR': psnr_list,
-        'SSIM': ssim_list,
-        }
-    return out
-
-# This works for recons which were not undersampled
-# Paths to your reconstructions and ground truth
-recon_paths = [
-    project_root / 'benchmarks/results/0801_fl_lp590_25_tomopy_fbp_gpu_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_25_tomopari_fbp_gpu_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_50_tomopy_fbp_gpu_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_50_tomopari_fbp_gpu_recon.npy',
-]
-GT_path = project_root / 'benchmarks/results/0801_fl_lp590_400_tomopy_fbp_gpu_recon.npy'  # or a true ground truth recon
-
-# Load ground truth reconstruction (should be a full recon, not raw data)
-GT = load_recon(GT_path)
-print(f"Ground truth shape: {GT.shape}")
+def select_ground_truth(records: list[ReconstructionRecord], modality: str) -> ReconstructionRecord:
+    candidates = [
+        record
+        for record in records
+        if record.modality == modality
+        and record.method == "tomopy_fbp_gpu"
+        and record.undersample == 1
+    ]
+    if not candidates:
+        raise RuntimeError(
+            f"No tomopy_fbp_gpu reconstruction with undersample=1 found for modality '{modality}'"
+        )
+    return max(candidates, key=lambda record: record.steps)
 
 
-METRICS = {}
-for path in recon_paths:
-    recon = load_recon(path)
-    print(f"Loaded reconstruction from {path} with shape: {recon.shape}")
-    assert recon.shape == GT.shape, f"Reconstruction shape {recon.shape} does not match ground truth shape {GT.shape}"
-    metrics = compare_reconstructions(recon, GT)
-    print(metrics)
-    METRICS[os.path.basename(path)] = metrics
-    print('##################################')
+def build_metrics(records: list[ReconstructionRecord], modality: str) -> dict[str, dict]:
+    ground_truth_record = select_ground_truth(records, modality)
+    ground_truth = load_recon(ground_truth_record.path)
+    print(f"Ground truth: {ground_truth_record.path.name} shape={ground_truth.shape}")
+
+    metrics: dict[str, dict] = {}
+    for record in records:
+        if record.modality != modality:
+            continue
+        if record.path == ground_truth_record.path:
+            print(f"Skipping {record.path.name}: this is the ground truth")
+            continue
+
+        recon = load_recon(record.path)
+        print(
+            f"Loaded {record.path.name} with shape={recon.shape} "
+            f"undersample={record.undersample}"
+        )
+        record_metrics = compare_reconstruction(recon, ground_truth, record.undersample)
+        print(record_metrics)
+        metrics[record.path.name] = record_metrics
+        print("##################################")
+
+    return metrics
 
 
-## Undersampled paths ##
-########################
-recon_paths = [
-    project_root / 'benchmarks/results/0801_fl_lp590_25_tomopari_fbp_cpu_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_25_tomopari_tomodl_gpu_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_25_tomopari_tomodl_cpu_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_25_tomopy_sart_gpu_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_50_tomopari_fbp_cpu_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_50_tomopari_tomodl_gpu_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_50_tomopari_tomodl_cpu_recon.npy',
-    project_root / 'benchmarks/results/0801_fl_lp590_50_tomopy_sart_gpu_recon.npy',
-]
+def main() -> None:
+    records = discover_reconstructions(RESULTS_DIR)
+    if not records:
+        raise RuntimeError(f"No reconstruction files found in {RESULTS_DIR}")
 
-for path in recon_paths:
-    recon = load_recon(path)
-    print(f"Loaded undersampled reconstruction from {path} with shape: {recon.shape}")
-    metrics = compare_reconstructions_undersample_gt(recon, GT, 200)
-    print(metrics)
-    METRICS[os.path.basename(path)] = metrics
-    print('##################################')
+    modalities = sorted({record.modality for record in records})
+    if not modalities:
+        raise RuntimeError(f"No parseable reconstruction files found in {RESULTS_DIR}")
+
+    for modality in modalities:
+        modality_metrics = build_metrics(records, modality)
+        output_path = RESULTS_DIR / OUTPUT_METRICS_TEMPLATE.format(modality=modality.upper())
+        np.save(output_path, modality_metrics)
+        print(f"Saved metrics to {output_path}")
 
 
-#save METRICS
-np.save(project_root / 'benchmarks/results/metrics_FL.npy', METRICS)
+if __name__ == "__main__":
+    main()
