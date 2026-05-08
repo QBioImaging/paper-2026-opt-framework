@@ -126,7 +126,7 @@ def _plot_mode(mode: str) -> None:
     fig.text(0.55, 0.97, 'Fluorescence', ha='center', va='top', fontsize=14)
     fig.text(0.55, 0.48, 'Transmission', ha='center', va='top', fontsize=14)
     plt.tight_layout(h_pad=1.5, rect=[0, 0, 1, 0.96])
-    plt.savefig(project_root / f'benchmarks/results/quality_all_{mode}.png')
+    plt.savefig(project_root / f'fig_output/quality_all_{mode}.png')
     plt.show()
 
 
