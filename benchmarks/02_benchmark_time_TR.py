@@ -65,6 +65,7 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
                 "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
                 "undersample": 1,
                 "order_mode": 0,
+                "invert_color": False,
                 "batch_process": 32,
                 "is_half_rotation": False,
                 "clip_to_circle": True,
@@ -81,6 +82,7 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
                 "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
                 "undersample": 100,
                 "order_mode": 0,
+                "invert_color": False,
                 "batch_process": 1,
                 "is_half_rotation": False,
                 "clip_to_circle": True,
@@ -97,6 +99,7 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
                 "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
                 "undersample": 100,
                 "order_mode": 0,
+                "invert_color": False,
                 "batch_process": 12,
                 "is_half_rotation": False,
                 "clip_to_circle": True,
@@ -114,6 +117,7 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
                 "undersample": 100,
                 "order_mode": 0,
                 "batch_process": 1,
+                "invert_color": False,
                 "is_half_rotation": False,
                 "clip_to_circle": True,
                 "plot_title": "TOMODL CPU TR 25 Reconstruction",
@@ -161,6 +165,7 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
                 "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
                 "undersample": 1,
                 "order_mode": 0,
+                "invert_color": False,
                 "batch_process": 32,
                 "is_half_rotation": False,
                 "clip_to_circle": True,
@@ -177,6 +182,7 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
                 "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
                 "undersample": 100,
                 "order_mode": 0,
+                "invert_color": False,
                 "batch_process": 1,
                 "is_half_rotation": False,
                 "clip_to_circle": True,
@@ -193,6 +199,7 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
                 "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
                 "undersample": 100,
                 "order_mode": 0,
+                "invert_color": False,
                 "batch_process": 12,
                 "is_half_rotation": False,
                 "clip_to_circle": True,
@@ -209,6 +216,7 @@ METHODS_BY_STEP: dict[int, list[MethodSpec]] = {
                 "filter": "ramp", # can be  "ramp", "shepp-logan" or "cosine" or "hamming" or "hann"
                 "undersample": 100,
                 "order_mode": 0,
+                "invert_color": False,
                 "batch_process": 1,
                 "is_half_rotation": False,
                 "clip_to_circle": True,
@@ -302,7 +310,14 @@ def _run_method(
     params = _base_params(thetas, save_path, method.params["plot_title"])
     params.update(method.params)
 
-    _, first_time = u.run_reconstruction(data, params)
+    if method.caller == "tomopy":
+        runner = u.run_reconstruction
+    elif method.caller == "tomopari":
+        runner = u.reconstruct_tomopari
+    else:
+        raise ValueError(f"Unknown method caller: {method.caller}")
+
+    _, first_time = runner(data, params)
     if not RUN_BENCHMARKS:
         return
 
@@ -312,7 +327,7 @@ def _run_method(
     for _ in range(REPEATS - 1):
         repeat_params = dict(params)
         repeat_params["save_path"] = None
-        _, elapsed = u.run_reconstruction(data, repeat_params)
+        _, elapsed = runner(data, repeat_params)
         times.append(elapsed)
 
     benchmark_dict[key] = times
@@ -323,6 +338,7 @@ def run_step(step: int, benchmark_dict: dict[str, list[float]]) -> None:
     print(f"###### Processing {step} step {MODALITY_LABEL} data... ######")
 
     data, thetas = u.load_data(_dataset_path(step))
+    print('Normalized data range [0, 4095]', data.max(), data.min())
     for method in METHODS_BY_STEP[step]:
         _run_method(step, data, thetas, method, benchmark_dict)
 

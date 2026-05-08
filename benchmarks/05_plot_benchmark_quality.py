@@ -1,8 +1,9 @@
 """
-This is run after 02_benchmark_time.py, where you can save the reconstructions.
+This is run after 04_benchmark_quality.py, where you can save the reconstructions.
 These are then loaded here to compare the quality of the reconstructions.
 
-The comparison is made in respect to the FBP_CUDA reconstruction of 400 steps for the FL case
+The comparison is made in respect to the FBP_CUDA reconstruction of 400 steps for
+the FL case
 
 For the transmission case, the FBP_CUDA reconstruction of 800 steps is used.
 """
@@ -10,13 +11,20 @@ For the transmission case, the FBP_CUDA reconstruction of 800 steps is used.
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+import re
 
 project_root = Path(__file__).resolve().parents[1]
-UNDERSAMPLE = 10
-metrics = np.load(project_root / 'benchmarks/results/metrics_FL.npy', allow_pickle=True).item()
+metrics_fl = np.load(project_root / 'benchmarks/results/metrics_FL.npy', allow_pickle=True).item()
+metrics_tr = np.load(project_root / 'benchmarks/results/metrics_TR.npy', allow_pickle=True).item()
+PLOT_MODES = ('raw', 'norm', 'flex')
 
 _ACRONYMS = {'fbp', 'cpu', 'gpu', 'sart', 'cuda', 'art', 'tv', 'mlem', 'gridrec', 'tomodl', 'tr', 'fl'}
-_STEP_COLORS = {'25': 'tab:blue', '50': 'tab:orange', '400': 'tab:green', '800': 'tab:red'}
+_STEP_COLORS = {
+    '400': '#D55E00', # 1x  — Vermillion
+    '50':  '#009E73', # 8x  — Bluish Green
+    '25':  '#E69F00', # 16x — Orange
+}
+_STEP_LABELS = {'400': '1x', '50': '8x', '25': '16x'}
 _DEFAULT_COLOR = 'tab:gray'
 
 
@@ -33,46 +41,94 @@ def _bar_color(raw: str) -> str:
     return _STEP_COLORS.get(step, _DEFAULT_COLOR)
 
 
-def _add_legend(ax, sorted_items: list) -> None:
-    present_steps = sorted({raw.split('_')[0] for raw, _ in sorted_items if raw.split('_')[0] in _STEP_COLORS})
+def _add_legend(ax, sorted_items: list, pos=(1.05, 0.5)) -> None:
+    present_steps = {raw.split('_')[0] for raw, _ in sorted_items if raw.split('_')[0] in _STEP_COLORS}
+    # Use _STEP_COLORS key order (1x → 8x → 16x)
     legend_handles = [
-        plt.Rectangle((0, 0), 1, 1, color=_STEP_COLORS[step], label=f"{step} steps")
-        for step in present_steps
+        plt.Rectangle((0, 0), 1, 1, color=_STEP_COLORS[step], label=_STEP_LABELS[step])
+        for step in _STEP_COLORS
+        if step in present_steps
     ]
     if legend_handles:
-        ax.legend(handles=legend_handles)
+        ax.legend(handles=legend_handles, bbox_to_anchor=pos)
 
-psnr_data = {
-    key.replace('0801_fl_lp590_', '').replace('_recon.npy', ''): (np.mean(v['PSNR']), np.std(v['PSNR']))
-    for key, v in metrics.items() if 'PSNR' in v
-}
-psnr_sorted = sorted(psnr_data.items(), key=lambda x: x[1][0], reverse=False)
-fig, ax = plt.subplots()
-for i, (raw_label, (mean, std)) in enumerate(psnr_sorted):
-    ax.barh(i, mean, xerr=std, color=_bar_color(raw_label))
-ax.set_yticks(range(len(psnr_sorted)))
-ax.set_yticklabels([_format_label(raw_label) for raw_label, _ in psnr_sorted])
-_add_legend(ax, psnr_sorted)
-ax.set_xlabel("PSNR (dB), mean over slices")
-ax.set_title("Quality over slices, Fluorescence")
-plt.tight_layout()
-plt.savefig(project_root / 'benchmarks/results/psnr_fl.png')
-plt.show()
+_FILENAME_PATTERN = re.compile(
+    r"(?P<prefix>.+)_(?P<modality>[a-z]+)_lp\d+_(?P<steps>\d+)_(?P<method>.+)-(?P<undersample>\d+)$"
+)
 
 
-ssim_data = {
-    key.replace('0801_fl_lp590_', '').replace('_recon.npy', ''): (np.mean(v['SSIM']), np.std(v['SSIM']))
-    for key, v in metrics.items() if 'SSIM' in v
-}
-ssim_sorted = sorted(ssim_data.items(), key=lambda x: x[1][0], reverse=False)
-fig, ax = plt.subplots()
-for i, (raw_label, (mean, std)) in enumerate(ssim_sorted):
-    ax.barh(i, mean, xerr=std, color=_bar_color(raw_label))
-ax.set_yticks(range(len(ssim_sorted)))
-ax.set_yticklabels([_format_label(raw_label) for raw_label, _ in ssim_sorted])
-_add_legend(ax, ssim_sorted)
-ax.set_xlabel("SSIM, mean over slices")
-ax.set_title("Quality over slices, Fluorescence")
-plt.tight_layout()
-plt.savefig(project_root / 'benchmarks/results/ssim_fl.png')
-plt.show()
+def _key_to_label(filename: str, modality: str) -> str:
+    match = _FILENAME_PATTERN.match(filename)
+    if match and match.group('modality') == modality:
+        return f"{match.group('steps')}_{match.group('method')}"
+    return filename.replace('_recon.npy', '')
+
+
+def _metric_series(metrics: dict, modality: str, mode: str, metric_name: str) -> dict[str, tuple[float, float]]:
+    series: dict[str, tuple[float, float]] = {}
+    for filename, record in metrics.items():
+        if mode not in record:
+            continue
+        metric_values = np.asarray(record[mode].get(metric_name, []), dtype=float)
+        if metric_name == 'PSNR':
+            metric_values = metric_values[np.isfinite(metric_values)]
+        if metric_values.size == 0:
+            continue
+        label = _key_to_label(filename, modality)
+        series[label] = (float(np.nanmean(metric_values)), float(np.nanstd(metric_values)))
+    return series
+
+
+def _plot_row(ax_left, ax_right, metrics: dict, modality: str, mode: str, show_xlabel: bool) -> None:
+    psnr_data = _metric_series(metrics, modality, mode, 'PSNR')
+    ssim_data = _metric_series(metrics, modality, mode, 'SSIM')
+
+    psnr_sorted = sorted(psnr_data.items(), key=lambda x: x[1][0], reverse=False)
+    ssim_lookup = dict(ssim_data.items())
+    ordered_labels = [label for label, _ in psnr_sorted if label in ssim_lookup]
+
+    if not ordered_labels:
+        ax_left.text(0.5, 0.5, f'No data for {mode}', ha='center', va='center', transform=ax_left.transAxes)
+        ax_right.text(0.5, 0.5, f'No data for {mode}', ha='center', va='center', transform=ax_right.transAxes)
+        return
+
+    for i, label in enumerate(ordered_labels):
+        psnr_mean, psnr_std = psnr_data[label]
+        ax_left.barh(i, psnr_mean, xerr=psnr_std, color=_bar_color(label))
+        ax_left.set_xlim(0, 48)
+
+    for i, label in enumerate(ordered_labels):
+        ssim_mean, ssim_std = ssim_lookup[label]
+        ax_right.barh(i, ssim_mean, xerr=ssim_std, color=_bar_color(label))
+        ax_right.set_xlim(0, 1.05)
+
+    ax_left.set_yticks(range(len(ordered_labels)))
+    ax_left.set_yticklabels([_format_label(label) for label in ordered_labels])
+    ax_right.set_yticks(range(len(ordered_labels)))
+    ax_right.set_yticklabels([_format_label(label) for label in ordered_labels])
+    ax_right.tick_params(axis='y', labelleft=False)
+
+    if show_xlabel:
+        ax_left.set_xlabel('PSNR (dB), mean over slices')
+        ax_right.set_xlabel('SSIM, mean over slices')
+
+    legend_items = [(label, (0.0, 0.0)) for label in ordered_labels]
+    if modality == 'fl':
+        _add_legend(ax_left, legend_items, pos=(-0.08, -0.02))
+
+
+def _plot_mode(mode: str) -> None:
+    fig, ax = plt.subplots(figsize=(10, 12), nrows=2, ncols=2, sharey='row')
+
+    _plot_row(ax[0, 0], ax[0, 1], metrics_fl, 'fl', mode, show_xlabel=False)
+    _plot_row(ax[1, 0], ax[1, 1], metrics_tr, 'tr', mode, show_xlabel=True)
+
+    fig.text(0.55, 0.97, 'Fluorescence', ha='center', va='top', fontsize=14)
+    fig.text(0.55, 0.48, 'Transmission', ha='center', va='top', fontsize=14)
+    plt.tight_layout(h_pad=1.5, rect=[0, 0, 1, 0.96])
+    plt.savefig(project_root / f'benchmarks/results/quality_all_{mode}.png')
+    plt.show()
+
+
+for mode in PLOT_MODES:
+    _plot_mode(mode)

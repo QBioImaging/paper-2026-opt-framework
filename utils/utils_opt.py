@@ -213,6 +213,7 @@ def reconstruct_tomopari(
     opt.order_mode = params.get("order_mode", 0)
     opt.clip_to_circle = params.get("clip_to_circle", False)
     opt.set_reconstruction_process()
+    opt.invert_color = params.get("invert_color", False)
 
     undersample = params.get('undersample', 1)
     circ_mask = params.get('circ_mask', 0.95)

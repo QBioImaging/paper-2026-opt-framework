@@ -57,15 +57,46 @@ def compare_reconstruction(recon: np.ndarray, ground_truth: np.ndarray, undersam
             f"reconstruction shape {recon.shape} after undersample={undersample}"
         )
 
-    mse = mean_squared_error(aligned_ground_truth, recon)
+    mse_raw = mean_squared_error(aligned_ground_truth, recon)
     data_range = aligned_ground_truth.max() - aligned_ground_truth.min()
-    psnr = peak_signal_noise_ratio(aligned_ground_truth, recon, data_range=data_range)
-    ssim = structural_similarity(aligned_ground_truth, recon, data_range=data_range)
-    return {
-        "MSE": mse,
-        "PSNR": [psnr],
-        "SSIM": [ssim],
-    }
+    psnr_raw = peak_signal_noise_ratio(aligned_ground_truth, recon, data_range=data_range)
+    ssim_raw = structural_similarity(aligned_ground_truth, recon, data_range=data_range)
+
+    # normalize to [0, 1] for fair comparison
+    aligned_ground_truth_norm = (aligned_ground_truth - aligned_ground_truth.min()) / (aligned_ground_truth.max() - aligned_ground_truth.min())
+    recon_norm = (recon - recon.min()) / (recon.max() - recon.min())
+
+    mse_norm = mean_squared_error(aligned_ground_truth_norm, recon_norm)
+    data_range = aligned_ground_truth_norm.max() - aligned_ground_truth_norm.min()
+    psnr_norm = peak_signal_noise_ratio(aligned_ground_truth_norm, recon_norm, data_range=data_range)
+    ssim_norm = structural_similarity(aligned_ground_truth_norm, recon_norm, data_range=data_range)
+
+    # 1. Capture GT stats
+    gt_min = aligned_ground_truth.min()
+    gt_max = aligned_ground_truth.max()
+    data_range = gt_max - gt_min
+
+    # 2. Scale BOTH using the same formula
+    aligned_ground_truth_norm = (aligned_ground_truth - gt_min) / data_range
+    recon_norm = (recon - gt_min) / data_range
+
+    mse_flex = mean_squared_error(aligned_ground_truth_norm, recon_norm)
+    psnr_flex = peak_signal_noise_ratio(aligned_ground_truth_norm, recon_norm, data_range=1.0)
+    ssim_flex = structural_similarity(aligned_ground_truth_norm, recon_norm, data_range=1.0)
+
+    return {'raw': {
+        "MSE": mse_raw,
+        "PSNR": [psnr_raw],
+        "SSIM": [ssim_raw],
+    }, 'norm': {
+        "MSE": mse_norm,
+        "PSNR": [psnr_norm],
+        "SSIM": [ssim_norm],
+    }, 'flex': {
+        "MSE": mse_flex,
+        "PSNR": [psnr_flex],
+        "SSIM": [ssim_flex],
+    }}
 
 
 def parse_record(recon_path: Path) -> ReconstructionRecord | None:
@@ -105,6 +136,7 @@ def select_ground_truth(records: list[ReconstructionRecord], modality: str) -> R
         for record in records
         if record.modality == modality
         and record.method == "tomopy_fbp_gpu"
+        and record.steps == 400
         and record.undersample == 1
     ]
     if not candidates:
@@ -134,7 +166,7 @@ def build_metrics(records: list[ReconstructionRecord], modality: str) -> dict[st
         )
         record_metrics = compare_reconstruction(recon, ground_truth, record.undersample)
         print(record_metrics)
-        metrics[record.path.name] = record_metrics
+        metrics[record.path.name.rstrip("_recon.npy") + f"-{record.undersample}"] = record_metrics
         print("##################################")
 
     return metrics
@@ -146,6 +178,7 @@ def main() -> None:
         raise RuntimeError(f"No reconstruction files found in {RESULTS_DIR}")
 
     modalities = sorted({record.modality for record in records})
+    print(f"Discovered reconstructions for modalities: {modalities}")
     if not modalities:
         raise RuntimeError(f"No parseable reconstruction files found in {RESULTS_DIR}")
 
