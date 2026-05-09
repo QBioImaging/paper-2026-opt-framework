@@ -1,4 +1,5 @@
 import numpy as np
+import re
 from pathlib import Path
 from matplotlib import pyplot as plt
 
@@ -19,7 +20,8 @@ def _format_label(raw: str) -> str:
     tokens = raw.replace('-', '_').split('_')
     method_parts = tokens[2:]  # skip modality and step
     method_parts = [p for p in method_parts if p.lower() != 'stride' and not p.isdigit()]
-    return ' '.join(p.upper() if p.lower() in _ACRONYMS else p for p in method_parts if p)
+    label = ' '.join(p.upper() if p.lower() in _ACRONYMS else p for p in method_parts if p)
+    return f"*{label}" if _stride_factor(raw) > 1 else label
 
 
 def _bar_color(raw: str) -> str:
@@ -29,9 +31,14 @@ def _bar_color(raw: str) -> str:
     return _STEP_COLORS.get(step, _DEFAULT_COLOR)
 
 
+def _stride_factor(raw: str) -> int:
+    match = re.search(r"stride[-_](\d+)", raw)
+    return int(match.group(1)) if match else 1
+
+
 def _plot_times(bdict: dict, title: str, save_path: Path) -> None:
-    avg = {k: np.mean(v) for k, v in bdict.items()}
-    std = {k: np.std(v) for k, v in bdict.items()}
+    avg = {k: np.mean(v) * _stride_factor(k) for k, v in bdict.items()}
+    std = {k: np.std(v) * _stride_factor(k) for k, v in bdict.items()}
     print(f"\n{title}")
     for k, v in avg.items():
         print(f"  {k}: {v:.2f} +- {std[k]:.2f} seconds")
@@ -50,7 +57,7 @@ def _plot_times(bdict: dict, title: str, save_path: Path) -> None:
         if step in present_steps
     ]
     if legend_handles:
-        ax.legend(handles=legend_handles)
+        ax.legend(handles=legend_handles, title="Undersampling")
 
     ax.set_xscale("log")
     ax.set_xlabel("Time (s)")

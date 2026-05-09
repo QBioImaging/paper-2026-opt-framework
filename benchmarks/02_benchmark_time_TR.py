@@ -338,7 +338,6 @@ def run_step(step: int, benchmark_dict: dict[str, list[float]]) -> None:
     print(f"###### Processing {step} step {MODALITY_LABEL} data... ######")
 
     data, thetas = u.load_data(_dataset_path(step))
-    print('Normalized data range [0, 4095]', data.max(), data.min())
     for method in METHODS_BY_STEP[step]:
         _run_method(step, data, thetas, method, benchmark_dict)
 
